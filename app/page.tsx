@@ -13,24 +13,24 @@ interface Prospect {
 const INITIAL_PROSPECTS: Prospect[] = [
   {
     id: "1",
-    username: "y2k_vibes_toronto",
-    styleInterest: "Gel-X 3D Charm Set",
+    username: "cecesbraindump",
+    styleInterest: "Gel-X Chrome Set",
     status: "New",
     notes: "Interacted with recent Reel on chrome nails",
   },
   {
     id: "2",
-    username: "uoft_fashion_club",
-    styleInterest: "Distressed Airbrush Art",
+    username: "_cecilia.chen_",
+    styleInterest: "Concert-Themed Nails",
     status: "New",
-    notes: "Tagged us in story photo",
+    notes: "Liked a post about BTS concert nails",
   },
   {
     id: "3",
     username: "streetwear_cat",
     styleInterest: "Plaid & French Tip Merge",
     status: "Contacted",
-    notes: "Sent initial deep link DM",
+    notes: "Sent initial personalized DM",
   },
 ];
 
