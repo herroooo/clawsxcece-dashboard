@@ -139,9 +139,7 @@ export default function Dashboard() {
                   />
 
                   <a
-                    href={`https://ig.me/m/${
-                      selectedProspect.username
-                    }?text=${encodeURIComponent(draft)}`}
+                    href={`https://www.instagram.com/${selectedProspect.username}/`}
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={() =>
