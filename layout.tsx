@@ -1,4 +1,5 @@
-import "./globals.css";
+import React from "react";
+import "./app/globals.css";
 
 export const metadata = {
   title: "@clawsxcece Lead Engine",
