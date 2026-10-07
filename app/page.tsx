@@ -138,6 +138,12 @@ export default function Dashboard() {
                     className="w-full bg-slate-950 border border-slate-700 rounded p-2 mt-4"
                   />
 
+                  <button
+                    onClick={() => navigator.clipboard.writeText(draft)}
+                    className="block mt-3 text-center bg-indigo-600 rounded p-2 w-full"
+                  >
+                    Copy Message
+                  </button>
                   <a
                     href={`https://www.instagram.com/${selectedProspect.username}/`}
                     target="_blank"
