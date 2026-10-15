@@ -27,8 +27,8 @@ const INITIAL_PROSPECTS: Prospect[] = [
   },
   {
     id: "3",
-    username: "streetwear_cat",
-    styleInterest: "Plaid & French Tip Merge",
+    username: "kevinlaceste_",
+    styleInterest: "Halloween-Inspired Set",
     status: "Contacted",
     notes: "Sent initial personalized DM",
   },
