@@ -165,7 +165,7 @@ return (
                     />
 
                     <a
-                      href={`https://ig.me/${
+                      href={`https://www.instagram.com/${
                         selectedProspect.username
                       }?text=${encodeURIComponent(draft)}`}
                       target="_blank"
