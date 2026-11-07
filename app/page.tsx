@@ -2,14 +2,6 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 
-interface Prospect {
-  id: string;
-  username: string;
-  styleInterest: string;
-  status: "New" | "Contacted" | "Booked";
-  notes: string;
-}
-
 interface CalendlyBooking {
   id: string;
   clientName: string;
@@ -22,30 +14,6 @@ interface CalendlyBooking {
 
 const GOOGLE_SHEET_CSV_URL =
   "https://docs.google.com/spreadsheets/d/e/2PACX-1vR6vmPLxraM66uC_0Fv1mruHiCQ2j8Vq0YlTAviS--6L_fLjuCRpq--XZYxNppQpxta1qI_0RJ1A8TA/pub?output=csv";
-
-const INITIAL_PROSPECTS: Prospect[] = [
-  {
-    id: "1",
-    username: "cecesbraindump",
-    styleInterest: "Gel-X Chrome Set",
-    status: "New",
-    notes: "Interacted with recent Reel on chrome nails",
-  },
-  {
-    id: "2",
-    username: "_cecilia.chen_",
-    styleInterest: "Concert-Themed Nails",
-    status: "New",
-    notes: "Liked a post about BTS concert nails",
-  },
-  {
-    id: "3",
-    username: "kevinlaceste_",
-    styleInterest: "Halloween-Inspired Set",
-    status: "Contacted",
-    notes: "Sent initial personalized DM",
-  },
-];
 
 // Parses CSV text safely even when cells contain newlines or commas inside quotes
 function parseCSV(text: string): string[][] {
@@ -122,14 +90,13 @@ function parseAppointmentTimestamp(dateTimeStr: string): number {
 }
 
 export default function Dashboard() {
-  const [prospects, setProspects] = useState<Prospect[]>(INITIAL_PROSPECTS);
   const [bookings, setBookings] = useState<CalendlyBooking[]>([]);
   const [syncingBookings, setSyncingBookings] = useState(true);
-  const [selectedProspect, setSelectedProspect] = useState<Prospect | null>(
-    null
-  );
+  const [confirmedIds, setConfirmedIds] = useState<Record<string, boolean>>({});
+  const [selectedBooking, setSelectedBooking] =
+    useState<CalendlyBooking | null>(null);
   const [draft, setDraft] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const fetchBookings = useCallback(async () => {
     setSyncingBookings(true);
@@ -140,14 +107,22 @@ export default function Dashboard() {
       const csvText = await response.text();
       const rows = parseCSV(csvText);
 
-      // Load saved local prices so manual price edits persist on refresh
+      // Load saved local prices & confirmation statuses
       let savedPrices: Record<string, string> = {};
+      let savedConfirmations: Record<string, boolean> = {};
       try {
-        const stored = localStorage.getItem("clawsxcece_prices");
-        if (stored) savedPrices = JSON.parse(stored);
+        const storedPrices = localStorage.getItem("clawsxcece_prices");
+        if (storedPrices) savedPrices = JSON.parse(storedPrices);
+
+        const storedConfirmations = localStorage.getItem(
+          "clawsxcece_confirmed"
+        );
+        if (storedConfirmations)
+          savedConfirmations = JSON.parse(storedConfirmations);
       } catch {
         // Ignore storage errors
       }
+      setConfirmedIds(savedConfirmations);
 
       // Skip header row (index 0), map columns A-G, and sort chronologically (earliest first)
       const parsedBookings: CalendlyBooking[] = rows
@@ -187,36 +162,45 @@ export default function Dashboard() {
     fetchBookings();
   }, [fetchBookings]);
 
-  const handleGenerate = async (prospect: Prospect) => {
-    setSelectedProspect(prospect);
-    setLoading(true);
-    setDraft("");
+  // Filter queue: show only if appointment is within the next 7 days, and hasn't passed yet
+  const now = Date.now();
+  const sevenDaysFromNow = now + 7 * 24 * 60 * 60 * 1000;
 
+  const queueBookings = bookings.filter((booking) => {
+    const apptTime = parseAppointmentTimestamp(booking.appointmentTime);
+    if (isNaN(apptTime)) return true; // Fallback if timestamp unparsable
+    return apptTime >= now && apptTime <= sevenDaysFromNow;
+  });
+
+  const handleDraftConfirmation = (booking: CalendlyBooking) => {
+    setSelectedBooking(booking);
+    setCopied(false);
+    setDraft(
+      `haiii! I just wanted to confirm your appointment for ${booking.appointmentTime}! my addy is 33 charles st east !`
+    );
+  };
+
+  const handleCopyDraft = async () => {
+    if (!draft) return;
     try {
-      const res = await fetch("/api/generate-outreach", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          username: prospect.username,
-          styleInterest: prospect.styleInterest,
-        }),
-      });
-
-      const data = await res.json();
-      setDraft(data.text || "");
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setLoading(false);
+      await navigator.clipboard.writeText(draft);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error("Failed to copy text:", err);
     }
   };
 
-  const updateStatus = (id: string, newStatus: Prospect["status"]) => {
-    setProspects((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, status: newStatus } : p))
-    );
+  const markAsConfirmed = (id: string) => {
+    setConfirmedIds((prev) => {
+      const updated = { ...prev, [id]: true };
+      try {
+        localStorage.setItem("clawsxcece_confirmed", JSON.stringify(updated));
+      } catch {
+        // Ignore storage errors
+      }
+      return updated;
+    });
   };
 
   // Update price for a specific booking and save locally
@@ -258,13 +242,23 @@ export default function Dashboard() {
     return sum + (isNaN(num) ? 0 : num);
   }, 0);
 
+  // Format handle cleanly with @ for display and without @ for IG URL
+  const formatDisplayHandle = (handle: string) => {
+    if (!handle) return "No IG Handle";
+    return handle.startsWith("@") ? handle : `@${handle}`;
+  };
+
+  const getCleanInstagramUsername = (handle: string) => {
+    return handle.replace(/^@+/, "").trim();
+  };
+
   return (
     <main className="min-h-screen bg-[#B0FEE8] text-slate-900 p-8">
       <header className="mb-8 border-b border-slate-900/10 pb-4 flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold">@clawsxcece Lead Engine</h1>
           <p className="text-sm text-slate-700">
-            Compliant Inbound Capture & Outreach Pipeline
+            Compliant Inbound Capture & Appointment Confirmation Pipeline
           </p>
         </div>
 
@@ -278,45 +272,76 @@ export default function Dashboard() {
         </div>
       </header>
 
-      {/* --- LEADS QUEUE & OUTREACH CONSOLE --- */}
+      {/* --- BOOKING CONFIRMATIONS & OUTREACH CONSOLE --- */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
         <section className="lg:col-span-2 bg-white/80 backdrop-blur-sm border border-slate-900/10 rounded-xl p-5 shadow-sm">
-          <h2 className="text-lg font-semibold mb-4 text-slate-900">
-            Leads Queue
-          </h2>
+          <div className="mb-4">
+            <h2 className="text-lg font-semibold text-slate-900">
+              Client Confirmation Queue
+            </h2>
+            <p className="text-xs text-slate-600">
+              Showing clients with appointments happening within the next 7 days
+            </p>
+          </div>
 
-          <table className="w-full text-left">
-            <thead>
-              <tr className="border-b border-slate-200 text-slate-600 text-sm">
-                <th className="pb-2">User</th>
-                <th className="pb-2">Style Focus</th>
-                <th className="pb-2">Status</th>
-                <th className="pb-2">Actions</th>
-              </tr>
-            </thead>
-
-            <tbody className="divide-y divide-slate-100">
-              {prospects.map((item) => (
-                <tr key={item.id}>
-                  <td className="py-3 font-medium">@{item.username}</td>
-                  <td className="py-3 text-slate-700">{item.styleInterest}</td>
-                  <td className="py-3">
-                    <span className="text-xs px-2.5 py-1 rounded-full font-semibold bg-[#FFB5E7]/40 text-slate-900">
-                      {item.status}
-                    </span>
-                  </td>
-                  <td className="py-3">
-                    <button
-                      onClick={() => handleGenerate(item)}
-                      className="px-3 py-1.5 bg-[#FFB5E7] hover:bg-[#ffa2e1] text-slate-900 font-semibold text-xs rounded-lg transition-colors shadow-sm"
-                    >
-                      Draft DM
-                    </button>
-                  </td>
+          {syncingBookings && bookings.length === 0 ? (
+            <p className="text-sm text-slate-600 py-6 text-center animate-pulse">
+              Loading clients from Google Sheet...
+            </p>
+          ) : queueBookings.length === 0 ? (
+            <p className="text-sm text-slate-500 py-6 text-center">
+              No upcoming appointments within the 7-day confirmation window.
+            </p>
+          ) : (
+            <table className="w-full text-left">
+              <thead>
+                <tr className="border-b border-slate-200 text-slate-600 text-sm">
+                  <th className="pb-2">User</th>
+                  <th className="pb-2">Appointment Date & Time</th>
+                  <th className="pb-2">Status</th>
+                  <th className="pb-2">Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+
+              <tbody className="divide-y divide-slate-100">
+                {queueBookings.map((booking) => {
+                  const isConfirmed = !!confirmedIds[booking.id];
+                  return (
+                    <tr key={booking.id}>
+                      <td className="py-3 font-medium">
+                        <div>{formatDisplayHandle(booking.instagramHandle)}</div>
+                        <div className="text-xs text-slate-500">
+                          {booking.clientName}
+                        </div>
+                      </td>
+                      <td className="py-3 text-sm text-slate-700">
+                        {booking.appointmentTime}
+                      </td>
+                      <td className="py-3">
+                        <span
+                          className={`text-xs px-2.5 py-1 rounded-full font-semibold ${
+                            isConfirmed
+                              ? "bg-emerald-200/70 text-emerald-950"
+                              : "bg-[#FFB5E7]/40 text-slate-900"
+                          }`}
+                        >
+                          {isConfirmed ? "Confirmed" : "Unconfirmed"}
+                        </span>
+                      </td>
+                      <td className="py-3">
+                        <button
+                          onClick={() => handleDraftConfirmation(booking)}
+                          className="px-3 py-1.5 bg-[#FFB5E7] hover:bg-[#ffa2e1] text-slate-900 font-semibold text-xs rounded-lg transition-colors shadow-sm"
+                        >
+                          Draft DM
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
         </section>
 
         <section className="bg-white/80 backdrop-blur-sm border border-slate-900/10 rounded-xl p-5 shadow-sm flex flex-col justify-between">
@@ -325,49 +350,56 @@ export default function Dashboard() {
               Outreach Console
             </h2>
 
-            {selectedProspect ? (
+            {selectedBooking ? (
               <>
                 <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 mb-3">
                   <p className="font-bold text-slate-900">
-                    @{selectedProspect.username}
+                    {formatDisplayHandle(selectedBooking.instagramHandle)}{" "}
+                    <span className="font-normal text-xs text-slate-500">
+                      ({selectedBooking.clientName})
+                    </span>
                   </p>
-                  <p className="text-xs text-slate-600">
-                    {selectedProspect.styleInterest}
+                  <p className="text-xs text-slate-600 mt-0.5">
+                    {selectedBooking.appointmentTime}
                   </p>
                 </div>
 
-                {loading ? (
-                  <p className="text-sm text-slate-600 animate-pulse">
-                    Crafting personalized draft...
-                  </p>
-                ) : (
-                  <>
-                    <textarea
-                      value={draft}
-                      onChange={(e) => setDraft(e.target.value)}
-                      rows={5}
-                      className="w-full bg-white border border-slate-300 rounded-lg p-3 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#FFB5E7]"
-                    />
+                <textarea
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  rows={5}
+                  className="w-full bg-white border border-slate-300 rounded-lg p-3 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#FFB5E7]"
+                />
 
+                <div className="mt-3 space-y-2">
+                  <button
+                    type="button"
+                    onClick={handleCopyDraft}
+                    className="w-full bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-lg p-2.5 text-sm transition-colors shadow-sm"
+                  >
+                    {copied ? "✓ Copied DM!" : "Copy DM"}
+                  </button>
+
+                  {getCleanInstagramUsername(
+                    selectedBooking.instagramHandle
+                  ) && (
                     <a
-                      href={`https://www.instagram.com/${
-                        selectedProspect.username
-                      }?text=${encodeURIComponent(draft)}`}
+                      href={`https://www.instagram.com/${getCleanInstagramUsername(
+                        selectedBooking.instagramHandle
+                      )}/`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      onClick={() =>
-                        updateStatus(selectedProspect.id, "Contacted")
-                      }
-                      className="block mt-3 text-center bg-[#FFB5E7] hover:bg-[#ffa2e1] text-slate-900 font-bold rounded-lg p-2.5 text-sm transition-colors shadow-sm"
+                      onClick={() => markAsConfirmed(selectedBooking.id)}
+                      className="block text-center bg-[#FFB5E7] hover:bg-[#ffa2e1] text-slate-900 font-bold rounded-lg p-2.5 text-sm transition-colors shadow-sm"
                     >
                       Open IG & Send DM
                     </a>
-                  </>
-                )}
+                  )}
+                </div>
               </>
             ) : (
               <p className="text-sm text-slate-500 py-8 text-center">
-                Select a lead to generate outreach.
+                Select a client to draft their confirmation DM.
               </p>
             )}
           </div>
@@ -423,7 +455,7 @@ export default function Dashboard() {
                       </span>
                       {booking.instagramHandle && (
                         <span className="text-xs font-medium text-slate-500">
-                          ({booking.instagramHandle})
+                          ({formatDisplayHandle(booking.instagramHandle)})
                         </span>
                       )}
                     </div>
