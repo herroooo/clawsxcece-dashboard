@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 
 interface Prospect {
   id: string;
@@ -19,6 +19,9 @@ interface CalendlyBooking {
   price: string;
   inspoPhotoUrl: string;
 }
+
+const GOOGLE_SHEET_CSV_URL =
+  "https://docs.google.com/spreadsheets/d/e/2PACX-1vR6vmPLxraM66uC_0Fv1mruHiCQ2j8Vq0YlTAviS--6L_fLjuCRpq--XZYxNppQpxta1qI_0RJ1A8TA/pub?output=csv";
 
 const INITIAL_PROSPECTS: Prospect[] = [
   {
@@ -44,44 +47,110 @@ const INITIAL_PROSPECTS: Prospect[] = [
   },
 ];
 
-const INITIAL_BOOKINGS: CalendlyBooking[] = [
-  {
-    id: "b1",
-    clientName: "Chloe Smith",
-    instagramHandle: "@chloenails_to",
-    servicePreference: "Extensions (Gel-X + 3D Charms)",
-    appointmentTime: "Tomorrow, 2:00 PM",
-    price: "85",
-    inspoPhotoUrl: "",
-  },
-  {
-    id: "b2",
-    clientName: "Maya Lin",
-    instagramHandle: "@mayalin_art",
-    servicePreference: "Builder Gel",
-    appointmentTime: "Sunday, 11:30 AM",
-    price: "65",
-    inspoPhotoUrl: "",
-  },
-  {
-    id: "b3",
-    clientName: "Sora Kim",
-    instagramHandle: "@sora.k",
-    servicePreference: "Discount Set (Monthly Flash)",
-    appointmentTime: "Monday, 4:15 PM",
-    price: "50",
-    inspoPhotoUrl: "",
-  },
-];
+// Parses CSV text safely even when cells contain newlines or commas inside quotes
+function parseCSV(text: string): string[][] {
+  const rows: string[][] = [];
+  let currentRow: string[] = [];
+  let currentVal = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    const nextChar = text[i + 1];
+
+    if (char === '"') {
+      if (inQuotes && nextChar === '"') {
+        currentVal += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (char === "," && !inQuotes) {
+      currentRow.push(currentVal.trim());
+      currentVal = "";
+    } else if ((char === "\r" || char === "\n") && !inQuotes) {
+      if (char === "\r" && nextChar === "\n") i++;
+      currentRow.push(currentVal.trim());
+      if (currentRow.some((cell) => cell !== "")) {
+        rows.push(currentRow);
+      }
+      currentRow = [];
+      currentVal = "";
+    } else {
+      currentVal += char;
+    }
+  }
+
+  if (currentVal !== "" || currentRow.length > 0) {
+    currentRow.push(currentVal.trim());
+    if (currentRow.some((cell) => cell !== "")) {
+      rows.push(currentRow);
+    }
+  }
+
+  return rows;
+}
 
 export default function Dashboard() {
   const [prospects, setProspects] = useState<Prospect[]>(INITIAL_PROSPECTS);
-  const [bookings, setBookings] = useState<CalendlyBooking[]>(INITIAL_BOOKINGS);
+  const [bookings, setBookings] = useState<CalendlyBooking[]>([]);
+  const [syncingBookings, setSyncingBookings] = useState(true);
   const [selectedProspect, setSelectedProspect] = useState<Prospect | null>(
     null
   );
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(false);
+
+  const fetchBookings = useCallback(async () => {
+    setSyncingBookings(true);
+    try {
+      const response = await fetch(`${GOOGLE_SHEET_CSV_URL}&t=${Date.now()}`, {
+        cache: "no-store",
+      });
+      const csvText = await response.text();
+      const rows = parseCSV(csvText);
+
+      // Load saved local prices so manual price edits persist on refresh
+      let savedPrices: Record<string, string> = {};
+      try {
+        const stored = localStorage.getItem("clawsxcece_prices");
+        if (stored) savedPrices = JSON.parse(stored);
+      } catch {
+        // Ignore storage errors
+      }
+
+      // Skip header row (index 0) and map columns A-G
+      const parsedBookings: CalendlyBooking[] = rows
+        .slice(1)
+        .filter((row) => row[1] || row[2]) // Ensure clientName or instagramHandle exists
+        .map((row, idx) => {
+          const bookingId = row[0] || `row-${idx}`;
+          const sheetPrice = row[5] || "";
+          return {
+            id: bookingId,
+            clientName: row[1] || "Client",
+            instagramHandle: row[2] || "",
+            servicePreference: (row[3] || "Nail Appointment").replace(
+              /\n+/g,
+              " • "
+            ),
+            appointmentTime: row[4] || "TBD",
+            price: savedPrices[bookingId] ?? sheetPrice,
+            inspoPhotoUrl: row[6] || "",
+          };
+        });
+
+      setBookings(parsedBookings);
+    } catch (error) {
+      console.error("Failed to fetch Google Sheet bookings:", error);
+    } finally {
+      setSyncingBookings(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchBookings();
+  }, [fetchBookings]);
 
   const handleGenerate = async (prospect: Prospect) => {
     setSelectedProspect(prospect);
@@ -115,11 +184,23 @@ export default function Dashboard() {
     );
   };
 
-  // Update price for a specific booking
+  // Update price for a specific booking and save locally
   const handlePriceChange = (id: string, newPrice: string) => {
-    setBookings((prev) =>
-      prev.map((b) => (b.id === id ? { ...b, price: newPrice } : b))
-    );
+    setBookings((prev) => {
+      const updated = prev.map((b) =>
+        b.id === id ? { ...b, price: newPrice } : b
+      );
+      try {
+        const priceMap: Record<string, string> = {};
+        updated.forEach((b) => {
+          if (b.price !== "") priceMap[b.id] = b.price;
+        });
+        localStorage.setItem("clawsxcece_prices", JSON.stringify(priceMap));
+      } catch {
+        // Ignore storage errors
+      }
+      return updated;
+    });
   };
 
   // Handle attaching an inspiration photo from device
@@ -260,96 +341,118 @@ export default function Dashboard() {
 
       {/* --- CALENDLY APPOINTMENTS TIMELINE & PROFIT TRACKER --- */}
       <section className="bg-white/80 backdrop-blur-sm border border-slate-900/10 rounded-xl p-6 shadow-sm">
-        <div className="mb-6">
-          <h2 className="text-lg font-semibold text-slate-900">
-            Calendly Appointments Timeline
-          </h2>
-          <p className="text-xs text-slate-600">
-            Synced schedule with client IG usernames, service preferences, inspo photos, & pricing
-          </p>
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900">
+              Calendly Appointments Timeline
+            </h2>
+            <p className="text-xs text-slate-600">
+              Synced schedule with client IG usernames, service preferences, inspo photos, & pricing
+            </p>
+          </div>
+
+          <button
+            onClick={fetchBookings}
+            disabled={syncingBookings}
+            className="px-3 py-1.5 bg-[#FFB5E7] hover:bg-[#ffa2e1] disabled:opacity-50 text-slate-900 font-semibold text-xs rounded-lg transition-colors shadow-sm"
+          >
+            {syncingBookings ? "Syncing..." : "↻ Refresh Sheet"}
+          </button>
         </div>
 
         {/* Timeline Boxes */}
-        <div className="relative border-l-2 border-[#FFB5E7] ml-3 space-y-6 pb-2">
-          {bookings.map((booking) => (
-            <div key={booking.id} className="relative pl-6">
-              {/* Timeline Dot */}
-              <span className="absolute -left-[9px] top-4 w-4 h-4 rounded-full bg-[#FFB5E7] border-2 border-white shadow-sm" />
+        {syncingBookings && bookings.length === 0 ? (
+          <p className="text-sm text-slate-600 py-6 text-center animate-pulse">
+            Loading synced Calendly bookings...
+          </p>
+        ) : bookings.length === 0 ? (
+          <p className="text-sm text-slate-500 py-6 text-center">
+            No bookings synced yet. New Calendly appointments will appear here automatically.
+          </p>
+        ) : (
+          <div className="relative border-l-2 border-[#FFB5E7] ml-3 space-y-6 pb-2">
+            {bookings.map((booking) => (
+              <div key={booking.id} className="relative pl-6">
+                {/* Timeline Dot */}
+                <span className="absolute -left-[9px] top-4 w-4 h-4 rounded-full bg-[#FFB5E7] border-2 border-white shadow-sm" />
 
-              <div className="p-4 bg-white border border-slate-200/80 rounded-xl shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
-                {/* Left: Time, Client & Preference */}
-                <div className="space-y-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-[#FFB5E7]/40 text-slate-900">
-                      {booking.appointmentTime}
-                    </span>
-                    <span className="font-bold text-slate-900">
-                      {booking.clientName}
-                    </span>
-                    <span className="text-xs font-medium text-slate-500">
-                      ({booking.instagramHandle})
-                    </span>
-                  </div>
-                  <p className="text-sm text-slate-700 pt-1">
-                    <span className="font-semibold text-slate-900">
-                      Service Preference:{" "}
-                    </span>
-                    {booking.servicePreference}
-                  </p>
-                </div>
-
-                {/* Right: Inspo Photo Dropdown & Price Box */}
-                <div className="flex flex-wrap items-center gap-4 shrink-0">
-                  {/* Dropdown for Attaching/Viewing Inspo Photo */}
-                  <details className="relative">
-                    <summary className="cursor-pointer list-none px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold text-xs rounded-lg transition-colors flex items-center gap-1.5">
-                      <span>
-                        {booking.inspoPhotoUrl
-                          ? "🖼️ Inspo Attached ▾"
-                          : "📎 Attach Inspo ▾"}
+                <div className="p-4 bg-white border border-slate-200/80 rounded-xl shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  {/* Left: Time, Client & Preference */}
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-[#FFB5E7]/40 text-slate-900">
+                        {booking.appointmentTime}
                       </span>
-                    </summary>
-
-                    <div className="absolute right-0 mt-2 w-60 p-3 bg-white border border-slate-200 rounded-xl shadow-lg z-10 space-y-2">
-                      <label className="block text-xs font-semibold text-slate-700">
-                        Upload Client Inspo Photo:
-                      </label>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => handlePhotoUpload(booking.id, e)}
-                        className="block w-full text-xs text-slate-600 file:mr-2 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-[#FFB5E7] file:text-slate-900 hover:file:bg-[#ffa2e1] cursor-pointer"
-                      />
-                      {booking.inspoPhotoUrl && (
-                        <img
-                          src={booking.inspoPhotoUrl}
-                          alt="Client nail inspiration"
-                          className="w-full h-36 object-cover rounded-lg border border-slate-200 mt-2"
-                        />
+                      <span className="font-bold text-slate-900">
+                        {booking.clientName}
+                      </span>
+                      {booking.instagramHandle && (
+                        <span className="text-xs font-medium text-slate-500">
+                          ({booking.instagramHandle})
+                        </span>
                       )}
                     </div>
-                  </details>
+                    <p className="text-sm text-slate-700 pt-1">
+                      <span className="font-semibold text-slate-900">
+                        Service Preference:{" "}
+                      </span>
+                      {booking.servicePreference}
+                    </p>
+                  </div>
 
-                  {/* Price Input Box */}
-                  <div className="flex items-center gap-1.5">
-                    <label className="text-xs font-semibold text-slate-700">
-                      Price ($):
-                    </label>
-                    <input
-                      type="number"
-                      placeholder="0.00"
-                      value={booking.price}
-                      onChange={(e) =>
-                        handlePriceChange(booking.id, e.target.value)
-                      }
-                      className="w-24 bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#FFB5E7]"
-                    />
+                  {/* Right: Inspo Photo Dropdown & Price Box */}
+                  <div className="flex flex-wrap items-center gap-4 shrink-0">
+                    {/* Dropdown for Attaching/Viewing Inspo Photo */}
+                    <details className="relative">
+                      <summary className="cursor-pointer list-none px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold text-xs rounded-lg transition-colors flex items-center gap-1.5">
+                        <span>
+                          {booking.inspoPhotoUrl
+                            ? "🖼️ Inspo Attached ▾"
+                            : "📎 Attach Inspo ▾"}
+                        </span>
+                      </summary>
+
+                      <div className="absolute right-0 mt-2 w-60 p-3 bg-white border border-slate-200 rounded-xl shadow-lg z-10 space-y-2">
+                        <label className="block text-xs font-semibold text-slate-700">
+                          Upload Client Inspo Photo:
+                        </label>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => handlePhotoUpload(booking.id, e)}
+                          className="block w-full text-xs text-slate-600 file:mr-2 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-[#FFB5E7] file:text-slate-900 hover:file:bg-[#ffa2e1] cursor-pointer"
+                        />
+                        {booking.inspoPhotoUrl && (
+                          <img
+                            src={booking.inspoPhotoUrl}
+                            alt="Client nail inspiration"
+                            className="w-full h-36 object-cover rounded-lg border border-slate-200 mt-2"
+                          />
+                        )}
+                      </div>
+                    </details>
+
+                    {/* Price Input Box */}
+                    <div className="flex items-center gap-1.5">
+                      <label className="text-xs font-semibold text-slate-700">
+                        Price ($):
+                      </label>
+                      <input
+                        type="number"
+                        placeholder="0.00"
+                        value={booking.price}
+                        onChange={(e) =>
+                          handlePriceChange(booking.id, e.target.value)
+                        }
+                        className="w-24 bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#FFB5E7]"
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
 
         {/* Bottom Summed Total of Profits */}
         <div className="mt-6 pt-4 border-t border-slate-200 flex justify-between items-center">
