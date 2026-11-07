@@ -91,6 +91,36 @@ function parseCSV(text: string): string[][] {
   return rows;
 }
 
+// Converts "3:00 PM - Saturday, 14 November 2026" into a sortable timestamp
+function parseAppointmentTimestamp(dateTimeStr: string): number {
+  const match = dateTimeStr.match(
+    /^(\d{1,2}):(\d{2})\s*(AM|PM)\s*-\s*[A-Za-z]+,\s*(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})/i
+  );
+
+  if (match) {
+    let hours = parseInt(match[1], 10);
+    const minutes = parseInt(match[2], 10);
+    const meridiem = match[3].toUpperCase();
+    const day = match[4];
+    const month = match[5];
+    const year = match[6];
+
+    if (meridiem === "PM" && hours !== 12) hours += 12;
+    if (meridiem === "AM" && hours === 12) hours = 0;
+
+    const parsed = new Date(
+      `${month} ${day}, ${year} ${String(hours).padStart(2, "0")}:${String(
+        minutes
+      ).padStart(2, "0")}:00`
+    ).getTime();
+
+    if (!isNaN(parsed)) return parsed;
+  }
+
+  const fallback = Date.parse(dateTimeStr);
+  return isNaN(fallback) ? Number.MAX_SAFE_INTEGER : fallback;
+}
+
 export default function Dashboard() {
   const [prospects, setProspects] = useState<Prospect[]>(INITIAL_PROSPECTS);
   const [bookings, setBookings] = useState<CalendlyBooking[]>([]);
@@ -119,10 +149,10 @@ export default function Dashboard() {
         // Ignore storage errors
       }
 
-      // Skip header row (index 0) and map columns A-G
+      // Skip header row (index 0), map columns A-G, and sort chronologically (earliest first)
       const parsedBookings: CalendlyBooking[] = rows
         .slice(1)
-        .filter((row) => row[1] || row[2]) // Ensure clientName or instagramHandle exists
+        .filter((row) => row[1] || row[2])
         .map((row, idx) => {
           const bookingId = row[0] || `row-${idx}`;
           const sheetPrice = row[5] || "";
@@ -138,7 +168,12 @@ export default function Dashboard() {
             price: savedPrices[bookingId] ?? sheetPrice,
             inspoPhotoUrl: row[6] || "",
           };
-        });
+        })
+        .sort(
+          (a, b) =>
+            parseAppointmentTimestamp(a.appointmentTime) -
+            parseAppointmentTimestamp(b.appointmentTime)
+        );
 
       setBookings(parsedBookings);
     } catch (error) {
