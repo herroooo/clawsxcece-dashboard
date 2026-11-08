@@ -9,7 +9,7 @@ interface CalendlyBooking {
   servicePreference: string;
   appointmentTime: string;
   price: string;
-  inspoPhotoUrl: string;
+  inspoPhotoUrls: string[];
 }
 
 const GOOGLE_SHEET_CSV_URL =
@@ -131,6 +131,12 @@ export default function Dashboard() {
         .map((row, idx) => {
           const bookingId = row[0] || `row-${idx}`;
           const sheetPrice = row[5] || "";
+          const sheetPhotos = row[6]
+            ? row[6]
+                .split(",")
+                .map((u) => u.trim())
+                .filter(Boolean)
+            : [];
           return {
             id: bookingId,
             clientName: row[1] || "Client",
@@ -141,7 +147,7 @@ export default function Dashboard() {
             ),
             appointmentTime: row[4] || "TBD",
             price: savedPrices[bookingId] ?? sheetPrice,
-            inspoPhotoUrl: row[6] || "",
+            inspoPhotoUrls: sheetPhotos,
           };
         })
         .sort(
@@ -222,18 +228,41 @@ export default function Dashboard() {
     });
   };
 
-  // Handle attaching an inspiration photo from device
+  // Handle attaching multiple inspiration photos from device
   const handlePhotoUpload = (
     id: string,
     e: React.ChangeEvent<HTMLInputElement>
   ) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const imageUrl = URL.createObjectURL(file);
-      setBookings((prev) =>
-        prev.map((b) => (b.id === id ? { ...b, inspoPhotoUrl: imageUrl } : b))
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      const newUrls = Array.from(files).map((file) =>
+        URL.createObjectURL(file)
       );
+      setBookings((prev) =>
+        prev.map((b) =>
+          b.id === id
+            ? { ...b, inspoPhotoUrls: [...b.inspoPhotoUrls, ...newUrls] }
+            : b
+        )
+      );
+      e.target.value = "";
     }
+  };
+
+  // Remove a specific inspiration photo by index
+  const handleRemovePhoto = (id: string, photoIndex: number) => {
+    setBookings((prev) =>
+      prev.map((b) =>
+        b.id === id
+          ? {
+              ...b,
+              inspoPhotoUrls: b.inspoPhotoUrls.filter(
+                (_, idx) => idx !== photoIndex
+              ),
+            }
+          : b
+      )
+    );
   };
 
   // Summed total of profits from all booking price boxes
@@ -469,32 +498,53 @@ export default function Dashboard() {
 
                   {/* Right: Inspo Photo Dropdown & Price Box */}
                   <div className="flex flex-wrap items-center gap-4 shrink-0">
-                    {/* Dropdown for Attaching/Viewing Inspo Photo */}
+                    {/* Dropdown for Attaching/Viewing Multiple Inspo Photos */}
                     <details className="relative">
                       <summary className="cursor-pointer list-none px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold text-xs rounded-lg transition-colors flex items-center gap-1.5">
                         <span>
-                          {booking.inspoPhotoUrl
-                            ? "🖼️ Inspo Attached ▾"
+                          {booking.inspoPhotoUrls.length > 0
+                            ? `🖼️ ${booking.inspoPhotoUrls.length} Inspo ${
+                                booking.inspoPhotoUrls.length === 1
+                                  ? "Photo"
+                                  : "Photos"
+                              } ▾`
                             : "📎 Attach Inspo ▾"}
                         </span>
                       </summary>
 
-                      <div className="absolute right-0 mt-2 w-60 p-3 bg-white border border-slate-200 rounded-xl shadow-lg z-10 space-y-2">
+                      <div className="absolute right-0 mt-2 w-72 p-3 bg-white border border-slate-200 rounded-xl shadow-lg z-10 space-y-2.5">
                         <label className="block text-xs font-semibold text-slate-700">
-                          Upload Client Inspo Photo:
+                          Upload Client Inspo Photos:
                         </label>
                         <input
                           type="file"
                           accept="image/*"
+                          multiple
                           onChange={(e) => handlePhotoUpload(booking.id, e)}
                           className="block w-full text-xs text-slate-600 file:mr-2 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-[#FFB5E7] file:text-slate-900 hover:file:bg-[#ffa2e1] cursor-pointer"
                         />
-                        {booking.inspoPhotoUrl && (
-                          <img
-                            src={booking.inspoPhotoUrl}
-                            alt="Client nail inspiration"
-                            className="w-full h-36 object-cover rounded-lg border border-slate-200 mt-2"
-                          />
+                        {booking.inspoPhotoUrls.length > 0 && (
+                          <div className="grid grid-cols-2 gap-2 pt-1 max-h-64 overflow-y-auto">
+                            {booking.inspoPhotoUrls.map((url, idx) => (
+                              <div key={idx} className="relative group">
+                                <img
+                                  src={url}
+                                  alt={`Client nail inspiration ${idx + 1}`}
+                                  className="w-full h-28 object-cover rounded-lg border border-slate-200"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleRemovePhoto(booking.id, idx)
+                                  }
+                                  title="Remove photo"
+                                  className="absolute top-1 right-1 w-5 h-5 rounded-full bg-slate-900/75 text-white text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            ))}
+                          </div>
                         )}
                       </div>
                     </details>
