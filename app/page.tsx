@@ -373,7 +373,7 @@ export default function Dashboard() {
   };
 
   return (
-    <main className="min-h-screen bg-[#B0FEE8] text-slate-900 p-8">
+    <main className="min-h-screen bg-[#B0FEE8] text-slate-900 p-4 sm:p-8">
       <header className="mb-8 border-b border-slate-900/10 pb-4 flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold">@clawsxcece Lead Engine</h1>
@@ -394,7 +394,7 @@ export default function Dashboard() {
 
       {/* --- BOOKING CONFIRMATIONS & OUTREACH CONSOLE --- */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
-        <section className="lg:col-span-2 bg-white/80 backdrop-blur-sm border border-slate-900/10 rounded-xl p-5 shadow-sm">
+        <section className="lg:col-span-2 bg-white/80 backdrop-blur-sm border border-slate-900/10 rounded-xl p-5 shadow-sm overflow-hidden">
           <div className="mb-4">
             <h2 className="text-lg font-semibold text-slate-900">
               Client Confirmation Queue
@@ -413,54 +413,56 @@ export default function Dashboard() {
               No upcoming appointments within the 7-day confirmation window.
             </p>
           ) : (
-            <table className="w-full text-left">
-              <thead>
-                <tr className="border-b border-slate-200 text-slate-600 text-sm">
-                  <th className="pb-2">User</th>
-                  <th className="pb-2">Appointment Date & Time</th>
-                  <th className="pb-2">Status</th>
-                  <th className="pb-2">Actions</th>
-                </tr>
-              </thead>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left min-w-[500px]">
+                <thead>
+                  <tr className="border-b border-slate-200 text-slate-600 text-sm">
+                    <th className="pb-2 pr-4">User</th>
+                    <th className="pb-2 pr-4">Appointment Date & Time</th>
+                    <th className="pb-2 pr-4">Status</th>
+                    <th className="pb-2">Actions</th>
+                  </tr>
+                </thead>
 
-              <tbody className="divide-y divide-slate-100">
-                {queueBookings.map((booking) => {
-                  const isConfirmed = !!confirmedIds[booking.id];
-                  return (
-                    <tr key={booking.id}>
-                      <td className="py-3 font-medium">
-                        <div>{formatDisplayHandle(booking.instagramHandle)}</div>
-                        <div className="text-xs text-slate-500">
-                          {booking.clientName}
-                        </div>
-                      </td>
-                      <td className="py-3 text-sm text-slate-700">
-                        {booking.appointmentTime}
-                      </td>
-                      <td className="py-3">
-                        <span
-                          className={`text-xs px-2.5 py-1 rounded-full font-semibold ${
-                            isConfirmed
-                              ? "bg-emerald-200/70 text-emerald-950"
-                              : "bg-[#FFB5E7]/40 text-slate-900"
-                          }`}
-                        >
-                          {isConfirmed ? "Confirmed" : "Unconfirmed"}
-                        </span>
-                      </td>
-                      <td className="py-3">
-                        <button
-                          onClick={() => handleDraftConfirmation(booking)}
-                          className="px-3 py-1.5 bg-[#FFB5E7] hover:bg-[#ffa2e1] text-slate-900 font-semibold text-xs rounded-lg transition-colors shadow-sm"
-                        >
-                          Draft DM
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                <tbody className="divide-y divide-slate-100">
+                  {queueBookings.map((booking) => {
+                    const isConfirmed = !!confirmedIds[booking.id];
+                    return (
+                      <tr key={booking.id}>
+                        <td className="py-3 pr-4 font-medium">
+                          <div>{formatDisplayHandle(booking.instagramHandle)}</div>
+                          <div className="text-xs text-slate-500">
+                            {booking.clientName}
+                          </div>
+                        </td>
+                        <td className="py-3 pr-4 text-sm text-slate-700 whitespace-nowrap">
+                          {booking.appointmentTime}
+                        </td>
+                        <td className="py-3 pr-4 whitespace-nowrap">
+                          <span
+                            className={`text-xs px-2.5 py-1 rounded-full font-semibold ${
+                              isConfirmed
+                                ? "bg-emerald-200/70 text-emerald-950"
+                                : "bg-[#FFB5E7]/40 text-slate-900"
+                            }`}
+                          >
+                            {isConfirmed ? "Confirmed" : "Unconfirmed"}
+                          </span>
+                        </td>
+                        <td className="py-3 whitespace-nowrap">
+                          <button
+                            onClick={() => handleDraftConfirmation(booking)}
+                            className="px-3 py-1.5 bg-[#FFB5E7] hover:bg-[#ffa2e1] text-slate-900 font-semibold text-xs rounded-lg transition-colors shadow-sm"
+                          >
+                            Draft DM
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
         </section>
 
