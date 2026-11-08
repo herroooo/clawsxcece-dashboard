@@ -164,8 +164,15 @@ export default function Dashboard() {
       const parsedBookings: CalendlyBooking[] = rows
         .slice(1)
         .filter((row) => row[1] || row[2])
-        .map((row, idx) => {
-          const bookingId = row[0] || `row-${idx}`;
+        .map((row) => {
+          const clientName = row[1] || "Client";
+          const appointmentTime = row[4] || "TBD";
+          // Use Message ID from Col A if present, otherwise a stable client+time key
+          const bookingId =
+            row[0]?.trim() ||
+            `${clientName.toLowerCase().trim()}_${appointmentTime
+              .toLowerCase()
+              .trim()}`;
           const sheetPrice = row[5] || "";
           const sheetPhotos = row[6]
             ? row[6]
@@ -177,14 +184,17 @@ export default function Dashboard() {
 
           return {
             id: bookingId,
-            clientName: row[1] || "Client",
+            clientName,
             instagramHandle: row[2] || "",
             servicePreference: (row[3] || "Nail Appointment").replace(
               /\n+/g,
               " • "
             ),
-            appointmentTime: row[4] || "TBD",
-            price: savedPrices[bookingId] ?? sheetPrice,
+            appointmentTime,
+            price:
+              savedPrices[bookingId] !== undefined
+                ? savedPrices[bookingId]
+                : sheetPrice,
             inspoPhotoUrls: [...sheetPhotos, ...localPhotos],
           };
         })
@@ -247,17 +257,22 @@ export default function Dashboard() {
     });
   };
 
-  // Update price for a specific booking and save locally
+  // Update price for a specific booking and save persistently to localStorage
   const handlePriceChange = (id: string, newPrice: string) => {
     setBookings((prev) => {
       const updated = prev.map((b) =>
         b.id === id ? { ...b, price: newPrice } : b
       );
       try {
-        const priceMap: Record<string, string> = {};
-        updated.forEach((b) => {
-          if (b.price !== "") priceMap[b.id] = b.price;
-        });
+        const existingRaw = localStorage.getItem("clawsxcece_prices");
+        const priceMap: Record<string, string> = existingRaw
+          ? JSON.parse(existingRaw)
+          : {};
+        if (newPrice === "") {
+          delete priceMap[id];
+        } else {
+          priceMap[id] = newPrice;
+        }
         localStorage.setItem("clawsxcece_prices", JSON.stringify(priceMap));
       } catch {
         // Ignore storage errors
@@ -269,13 +284,18 @@ export default function Dashboard() {
   // Helper to persist all local data-URL photos to localStorage
   const persistPhotos = (updatedBookings: CalendlyBooking[]) => {
     try {
-      const photoMap: Record<string, string[]> = {};
+      const existingRaw = localStorage.getItem("clawsxcece_photos");
+      const photoMap: Record<string, string[]> = existingRaw
+        ? JSON.parse(existingRaw)
+        : {};
       updatedBookings.forEach((b) => {
         const localOnly = b.inspoPhotoUrls.filter((url) =>
           url.startsWith("data:")
         );
         if (localOnly.length > 0) {
           photoMap[b.id] = localOnly;
+        } else {
+          delete photoMap[b.id];
         }
       });
       localStorage.setItem("clawsxcece_photos", JSON.stringify(photoMap));
