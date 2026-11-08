@@ -89,6 +89,38 @@ function parseAppointmentTimestamp(dateTimeStr: string): number {
   return isNaN(fallback) ? Number.MAX_SAFE_INTEGER : fallback;
 }
 
+// Resizes & compresses uploaded image into a persistent base64 data URL so it survives refreshes
+function compressImageToDataURL(
+  file: File,
+  maxWidth = 600,
+  quality = 0.75
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, maxWidth / img.width);
+        const canvas = document.createElement("canvas");
+        canvas.width = img.width * scale;
+        canvas.height = img.height * scale;
+
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          resolve(event.target?.result as string);
+          return;
+        }
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.onerror = reject;
+      img.src = event.target?.result as string;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 export default function Dashboard() {
   const [bookings, setBookings] = useState<CalendlyBooking[]>([]);
   const [syncingBookings, setSyncingBookings] = useState(true);
@@ -107,9 +139,10 @@ export default function Dashboard() {
       const csvText = await response.text();
       const rows = parseCSV(csvText);
 
-      // Load saved local prices & confirmation statuses
+      // Load saved local prices, confirmation statuses, & inspo photos
       let savedPrices: Record<string, string> = {};
       let savedConfirmations: Record<string, boolean> = {};
+      let savedPhotos: Record<string, string[]> = {};
       try {
         const storedPrices = localStorage.getItem("clawsxcece_prices");
         if (storedPrices) savedPrices = JSON.parse(storedPrices);
@@ -119,6 +152,9 @@ export default function Dashboard() {
         );
         if (storedConfirmations)
           savedConfirmations = JSON.parse(storedConfirmations);
+
+        const storedPhotos = localStorage.getItem("clawsxcece_photos");
+        if (storedPhotos) savedPhotos = JSON.parse(storedPhotos);
       } catch {
         // Ignore storage errors
       }
@@ -137,6 +173,8 @@ export default function Dashboard() {
                 .map((u) => u.trim())
                 .filter(Boolean)
             : [];
+          const localPhotos = savedPhotos[bookingId] || [];
+
           return {
             id: bookingId,
             clientName: row[1] || "Client",
@@ -147,7 +185,7 @@ export default function Dashboard() {
             ),
             appointmentTime: row[4] || "TBD",
             price: savedPrices[bookingId] ?? sheetPrice,
-            inspoPhotoUrls: sheetPhotos,
+            inspoPhotoUrls: [...sheetPhotos, ...localPhotos],
           };
         })
         .sort(
@@ -228,31 +266,62 @@ export default function Dashboard() {
     });
   };
 
-  // Handle attaching multiple inspiration photos from device
-  const handlePhotoUpload = (
+  // Helper to persist all local data-URL photos to localStorage
+  const persistPhotos = (updatedBookings: CalendlyBooking[]) => {
+    try {
+      const photoMap: Record<string, string[]> = {};
+      updatedBookings.forEach((b) => {
+        const localOnly = b.inspoPhotoUrls.filter((url) =>
+          url.startsWith("data:")
+        );
+        if (localOnly.length > 0) {
+          photoMap[b.id] = localOnly;
+        }
+      });
+      localStorage.setItem("clawsxcece_photos", JSON.stringify(photoMap));
+    } catch (err) {
+      console.error("Storage full or unavailable:", err);
+      alert(
+        "Browser storage is full! Try removing older photos from past appointments first."
+      );
+    }
+  };
+
+  // Handle attaching multiple inspiration photos and saving persistently
+  const handlePhotoUpload = async (
     id: string,
     e: React.ChangeEvent<HTMLInputElement>
   ) => {
     const files = e.target.files;
     if (files && files.length > 0) {
-      const newUrls = Array.from(files).map((file) =>
-        URL.createObjectURL(file)
-      );
-      setBookings((prev) =>
-        prev.map((b) =>
-          b.id === id
-            ? { ...b, inspoPhotoUrls: [...b.inspoPhotoUrls, ...newUrls] }
-            : b
-        )
-      );
+      try {
+        const compressedUrls = await Promise.all(
+          Array.from(files).map((file) => compressImageToDataURL(file))
+        );
+
+        setBookings((prev) => {
+          const updated = prev.map((b) =>
+            b.id === id
+              ? {
+                  ...b,
+                  inspoPhotoUrls: [...b.inspoPhotoUrls, ...compressedUrls],
+                }
+              : b
+          );
+          persistPhotos(updated);
+          return updated;
+        });
+      } catch (err) {
+        console.error("Failed to process uploaded images:", err);
+      }
       e.target.value = "";
     }
   };
 
-  // Remove a specific inspiration photo by index
+  // Remove a specific inspiration photo by index and update localStorage
   const handleRemovePhoto = (id: string, photoIndex: number) => {
-    setBookings((prev) =>
-      prev.map((b) =>
+    setBookings((prev) => {
+      const updated = prev.map((b) =>
         b.id === id
           ? {
               ...b,
@@ -261,8 +330,10 @@ export default function Dashboard() {
               ),
             }
           : b
-      )
-    );
+      );
+      persistPhotos(updated);
+      return updated;
+    });
   };
 
   // Summed total of profits from all booking price boxes
